@@ -40,7 +40,7 @@ pub struct CreateOutboxEntity {
 }
 
 #[derive(Queryable, Serialize, QueryableByName)]
-#[diesel(table_name = crate::schema::product_inventory_view)]
+#[diesel(table_name = crate::schema_custom::product_inventory_view)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ProductInventoryEntity {
     product_id: i32,
