@@ -9,9 +9,10 @@ use crate::{
     app_error::AppError,
     app_state::AppState,
     models::{
-        CreateOrderEntity, CreateOrderItemEntity, OrderEntity, OrderItemEntity, OrderWithItems,
+        CreateOrderEntity, CreateOrderItemEntity, CreateOutboxEntity, OrderEntity, OrderItemEntity,
+        OrderWithItems, OutboxEntity,
     },
-    schema::{order_items, orders},
+    schema::{order_items, orders, outbox},
 };
 
 pub fn routes() -> Router<AppState> {
@@ -26,7 +27,7 @@ struct OrderRequestedEvent {
     order_items: Vec<OrderItem>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct OrderItem {
     product_id: i32,
     quantity: i32,
@@ -53,7 +54,7 @@ async fn create_order(
         .filter(|item| item.quantity > 0)
         .collect();
 
-    let (created_order, order_items) = conn
+    let created_order = conn
         .transaction(|tx| {
             Box::pin(async move {
                 let created_order: OrderEntity = diesel::insert_into(orders::table)
@@ -95,33 +96,31 @@ async fn create_order(
                     inserted_count, created_order.id
                 );
 
-                Ok::<_, anyhow::Error>((created_order, order_items))
+                let outbox = diesel::insert_into(outbox::table)
+                    .values(CreateOutboxEntity {
+                        event_type: "inventory.order_requested".into(),
+                        payload: serde_json::to_string(&OrderRequestedEvent {
+                            order_id: created_order.id,
+                            order_items: order_items,
+                        })?,
+                    })
+                    .returning(OutboxEntity::as_returning())
+                    .get_result(tx)
+                    .await?;
+
+                info!(
+                    "{} items of order {} have been created",
+                    inserted_count, created_order.id
+                );
+
+                info!("Committed order {} and its items", created_order.id);
+                info!("Outbox created: {:?}", outbox);
+
+                Ok::<_, anyhow::Error>(created_order)
             })
         })
         .await
         .context("Failed to create order and its items in a transaction")?;
-
-    info!("Committed order {} and its items", created_order.id);
-
-    let channel = state
-        .rmq_client
-        .create_channel()
-        .await
-        .context("Failed to create RMQ channel")?;
-
-    let event = OrderRequestedEvent {
-        order_id: created_order.id,
-        order_items: order_items,
-    };
-
-    let queue = channel
-        .create_queue("inventory.order_requested")
-        .await
-        .context("Failed to create queue")?;
-
-    queue.publish(event).await.context("Failed to publish")?;
-
-    info!("Published message to inventory.order_requested");
 
     Ok(Json(created_order))
 }

@@ -1,4 +1,4 @@
-use medbook_ordersservice::{app_state, consumers, routes};
+use medbook_ordersservice::{app_state, consumers, outbox, routes};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -14,17 +14,19 @@ async fn main() -> anyhow::Result<()> {
 
     let app_state = app_state::AppState::init().await?;
 
-    consumers::start(
+    consumers::init(
         "orders.order_reserved".into(),
         consumers::orders::order_reserved,
         app_state.clone(),
     );
 
-    consumers::start(
+    consumers::init(
         "orders.order_rejected".into(),
         consumers::orders::order_rejected,
         app_state.clone(),
     );
+
+    outbox::init(app_state.clone());
 
     let app = axum::Router::new()
         .nest("/orders", routes::orders::routes())

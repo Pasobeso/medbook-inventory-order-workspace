@@ -15,6 +15,15 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    outbox (id) {
+        id -> Int4,
+        event_type -> Text,
+        payload -> Text,
+        status -> Text,
+    }
+}
+
 diesel::joinable!(order_items -> orders (order_id));
 
-diesel::allow_tables_to_appear_in_same_query!(order_items, orders,);
+diesel::allow_tables_to_appear_in_same_query!(order_items, orders, outbox,);

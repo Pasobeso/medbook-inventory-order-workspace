@@ -43,3 +43,21 @@ pub struct OrderWithItems {
     pub status: String,
     pub items: Vec<OrderItemEntity>,
 }
+
+#[derive(Queryable, Selectable, Debug)]
+#[diesel(table_name = crate::schema::outbox)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct OutboxEntity {
+    pub id: i32,
+    pub event_type: String,
+    pub payload: String,
+    pub status: String,
+}
+
+#[derive(Queryable, Insertable, Selectable, Debug)]
+#[diesel(table_name = crate::schema::outbox)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct CreateOutboxEntity {
+    pub event_type: String,
+    pub payload: String,
+}
