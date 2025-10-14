@@ -2,7 +2,7 @@ use anyhow::Result;
 use diesel::{ExpressionMethods, QueryDsl, SelectableHelper, result::OptionalExtension};
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use futures::future::BoxFuture;
-use lapin::message::Delivery;
+use lapin::{message::Delivery, options::BasicAckOptions};
 use medbook_events::{OrderRequestedEvent, OrderReservedEvent};
 use tracing::info;
 
@@ -74,6 +74,8 @@ pub fn reserve_stock(delivery: Delivery, state: AppState) -> BoxFuture<'static, 
 
             Ok::<_, anyhow::Error>(())
         })}).await?;
+
+        delivery.ack(BasicAckOptions::default()).await?;
 
         Ok(())
     })
