@@ -2,11 +2,24 @@ use std::time::Duration;
 
 use diesel::{ExpressionMethods, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::{app_state::AppState, models::OutboxEntity, schema::outbox};
 
-pub async fn start(state: AppState) -> anyhow::Result<()> {
+pub fn init(state: AppState) {
+    info!("Outbox initialized");
+    tokio::spawn(async move {
+        loop {
+            if let Err(e) = start(state.clone()).await {
+                error!("Error occured in outbox loop: {:?}", e);
+                error!("Retrying in 5 seconds...");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        }
+    });
+}
+
+async fn start(state: AppState) -> anyhow::Result<()> {
     let conn = &mut state.db_pool.get().await?;
     let channel = state.rmq_client.create_channel().await?;
 
