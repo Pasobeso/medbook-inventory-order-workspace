@@ -1,6 +1,6 @@
 use diesel::{
     Selectable,
-    prelude::{Insertable, Queryable},
+    prelude::{Insertable, Queryable, QueryableByName},
 };
 use serde::{Deserialize, Serialize};
 
@@ -37,4 +37,14 @@ pub struct OutboxEntity {
 pub struct CreateOutboxEntity {
     pub event_type: String,
     pub payload: String,
+}
+
+#[derive(Queryable, Serialize, QueryableByName)]
+#[diesel(table_name = crate::schema::product_inventory_view)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct ProductInventoryEntity {
+    product_id: i32,
+    th_name: String,
+    en_name: String,
+    quantity: i32,
 }

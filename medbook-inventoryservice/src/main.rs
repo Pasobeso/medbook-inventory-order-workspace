@@ -49,6 +49,7 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .nest("/products", routes::products::routes())
+        .nest("/inventory", routes::inventory::routes())
         .route("/health-check", axum::routing::get(|| async { "OK" }))
         .with_state(app_state);
 

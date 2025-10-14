@@ -24,6 +24,15 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    product_inventory_view (product_id) {
+        product_id -> Int4,
+        th_name -> Text,
+        en_name -> Text,
+        quantity -> Int4,
+    }
+}
+
 diesel::joinable!(inventory -> product (product_id));
 
 diesel::allow_tables_to_appear_in_same_query!(inventory, outbox, product,);

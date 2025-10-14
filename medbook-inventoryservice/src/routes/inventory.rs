@@ -1,58 +1,24 @@
-use crate::{
-    app_error::AppError,
-    app_state::AppState,
-    models::InventoryEntity,
-    schema::{inventory, product},
-};
-use anyhow::Context;
-use axum::{
-    Router,
-    extract::{Path, State},
-    response::IntoResponse,
-    routing,
-};
-use diesel::{ExpressionMethods, QueryDsl};
+use crate::{app_error::AppError, app_state::AppState, models::ProductInventoryEntity};
+use anyhow::{Context, Result};
+use axum::{Json, Router, extract::State, response::IntoResponse, routing};
 use diesel_async::RunQueryDsl;
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/{id}", routing::get(get_product_stock))
+    Router::new().route("/", routing::get(get_inventory))
 }
 
-async fn get_product_stock(
-    Path(id): Path<i32>,
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
-    let conn = &mut state.db_pool.get().await.unwrap();
-
-    println!("{}", id);
-
-    let exists: bool = diesel::select(diesel::dsl::exists(
-        product::table.filter(product::id.eq(id)),
-    ))
-    .get_result(conn)
-    .await
-    .context("Failed to check for product existence")?;
-
-    if !exists {
-        return Err(AppError::ProductNotFound(id));
-    }
-
-    diesel::insert_into(inventory::table)
-        .values(InventoryEntity {
-            product_id: id,
-            quantity: 0,
-        })
-        .on_conflict(inventory::product_id)
-        .do_nothing()
-        .execute(conn)
+async fn get_inventory(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+    let conn = &mut state
+        .db_pool
+        .get()
         .await
-        .context("Failed to insert into inventory")?;
+        .context("Failed to obtain a DB connection pool")?;
 
-    let inventory: InventoryEntity = inventory::table
-        .find(id)
-        .get_result(conn)
-        .await
-        .context("Failed to get inventory")?;
+    let inventory: Vec<ProductInventoryEntity> =
+        diesel::sql_query("select * from product_inventory_view")
+            .get_results(conn)
+            .await
+            .context("Failed to fethc")?;
 
-    Ok(format!("{}", inventory.quantity))
+    Ok(Json(inventory))
 }
