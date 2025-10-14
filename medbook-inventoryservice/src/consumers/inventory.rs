@@ -1,9 +1,9 @@
 use anyhow::Result;
 use diesel::{ExpressionMethods, QueryDsl, SelectableHelper, result::OptionalExtension};
 use diesel_async::{AsyncConnection, RunQueryDsl};
-use futures_lite::StreamExt;
-use lapin::options::BasicAckOptions;
-use medbook_events::{OrderItem, OrderRequestedEvent, OrderReservedEvent};
+use futures::future::BoxFuture;
+use lapin::message::Delivery;
+use medbook_events::{OrderRequestedEvent, OrderReservedEvent};
 use tracing::info;
 
 use crate::{
@@ -12,42 +12,15 @@ use crate::{
     schema::{inventory, outbox},
 };
 
-pub async fn start(state: AppState) -> anyhow::Result<()> {
-    let channel = state.rmq_client.create_channel().await?;
-    let mut consumer = channel
-        .create_consumer("inventory.order_requested", "inventory_consumer")
-        .await?;
-
-    info!("Inventory consumer created");
-
-    while let Some(delivery) = consumer.next().await {
-        let delivery = delivery?;
+pub fn reserve_stock(delivery: Delivery, state: AppState) -> BoxFuture<'static, Result<()>> {
+    Box::pin(async move {
+        let conn = &mut state.db_pool.get().await?;
         let payload: OrderRequestedEvent = serde_json::from_str(str::from_utf8(&delivery.data)?)?;
-        info!("Received event: {:?}", payload);
 
-        if let Err(e) = reserve_stock(&state, payload.order_id, payload.order_items).await {
-            tracing::error!("An error occured while reserving order: {}", e);
-            delivery.ack(BasicAckOptions::default()).await?;
-            continue;
-        }
-
-        delivery.ack(BasicAckOptions::default()).await?;
-    }
-
-    Ok(())
-}
-
-async fn reserve_stock(
-    state: &AppState,
-    order_id: i32,
-    requested_items: Vec<OrderItem>,
-) -> Result<()> {
-    let conn = &mut state.db_pool.get().await?;
-
-    conn.transaction(|conn| {
-        Box::pin(async move {
-            // 1. Check stock availability for each requested item
-            for item in &requested_items {
+        conn.transaction(move |conn| {
+            Box::pin(async move {
+                // 1. Check stock availability for each requested item
+            for item in &payload.order_items {
                 let available: Option<i32> = inventory::table
                     .filter(inventory::product_id.eq(item.product_id))
                     .select(inventory::quantity)
@@ -61,7 +34,7 @@ async fn reserve_stock(
                     let outbox = diesel::insert_into(outbox::table)
                         .values(CreateOutboxEntity {
                             event_type: "orders.order_rejected".into(),
-                            payload: serde_json::to_string(&OrderReservedEvent { order_id })?,
+                            payload: serde_json::to_string(&OrderReservedEvent { order_id: payload.order_id })?,
                         })
                         .returning(OutboxEntity::as_returning())
                         .get_result(conn)
@@ -79,7 +52,7 @@ async fn reserve_stock(
             }
 
             // 2. Deduct stock
-            for item in &requested_items {
+            for item in &payload.order_items {
                 diesel::update(inventory::table.filter(inventory::product_id.eq(item.product_id)))
                     .set(inventory::quantity.eq(inventory::quantity - item.quantity))
                     .execute(conn)
@@ -90,19 +63,18 @@ async fn reserve_stock(
             let outbox = diesel::insert_into(outbox::table)
                 .values(CreateOutboxEntity {
                     event_type: "orders.order_reserved".into(),
-                    payload: serde_json::to_string(&OrderReservedEvent { order_id })?,
+                    payload: serde_json::to_string(&OrderReservedEvent { order_id: payload.order_id })?,
                 })
                 .returning(OutboxEntity::as_returning())
                 .get_result(conn)
                 .await?;
 
-            info!("Reservation for order #{} successful", order_id);
+            info!("Reservation for order #{} successful", payload.order_id);
             info!("Outbox created: {:?}", outbox);
 
             Ok::<_, anyhow::Error>(())
-        })
-    })
-    .await?;
+        })}).await?;
 
-    Ok(())
+        Ok(())
+    })
 }

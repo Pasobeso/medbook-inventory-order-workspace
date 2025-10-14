@@ -30,16 +30,11 @@ async fn main() -> Result<()> {
 
     let app_state = AppState::init().await?;
 
-    let consumer_app_state = app_state.clone();
-    tokio::spawn(async move {
-        loop {
-            if let Err(e) = consumers::inventory::start(consumer_app_state.clone()).await {
-                error!("Error occured in consumer loop: {:?}", e);
-                error!("Retrying in 5 seconds...");
-                tokio::time::sleep(Duration::from_secs(5)).await;
-            }
-        }
-    });
+    consumers::start(
+        "inventory.order_requested".into(),
+        consumers::inventory::reserve_stock,
+        app_state.clone(),
+    );
 
     let outbox_app_state = app_state.clone();
     tokio::spawn(async move {
