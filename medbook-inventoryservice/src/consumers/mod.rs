@@ -10,7 +10,7 @@ pub mod inventory;
 
 type ConsumerFn = fn(Delivery, AppState) -> BoxFuture<'static, Result<()>>;
 
-pub fn start(queue_name: String, consumer_fn: ConsumerFn, state: AppState) {
+pub fn init(queue_name: String, consumer_fn: ConsumerFn, state: AppState) {
     tokio::spawn(async move {
         loop {
             let state = state.clone();
