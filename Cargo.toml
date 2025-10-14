@@ -1,0 +1,3 @@
+[workspace]
+resolver = "3"
+members = ["medbook-events","medbook-inventoryservice", "medbook-ordersservice"]

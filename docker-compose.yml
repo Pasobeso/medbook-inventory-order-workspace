@@ -1,0 +1,55 @@
+services:
+  rmq:
+    image: rabbitmq:management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_VHOST: /
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq/mnesia
+
+  dev-db:
+    image: postgres:alpine
+    volumes:
+      - dev_db_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: example
+    ports:
+      - "5432:5432"
+
+  # inventory-db:
+  #   image: postgres:alpine
+  #   volumes:
+  #     - inventory_data:/var/lib/postgresql/data
+  #   environment:
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: example
+  #     POSTGRES_DB: inventory
+  #   ports:
+  #     - "5432:5432"
+
+  # orders-db:
+  #   image: postgres:alpine
+  #   volumes:
+  #     - orders_data:/var/lib/postgresql/data
+  #   environment:
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: example
+  #     POSTGRES_DB: orders
+  #   ports:
+  #     - "5433:5432"
+
+  adminer:
+    image: adminer:latest
+    ports:
+      - "8080:8080"
+
+volumes:
+  dev_db_data:
+  inventory_data:
+  orders_data:
+  rabbitmq_data:
