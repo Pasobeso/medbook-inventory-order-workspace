@@ -18,6 +18,7 @@ pub fn start(queue_name: String, consumer_fn: ConsumerFn, state: AppState) {
 
             let future = Box::pin(async move {
                 let channel = state.rmq_client.create_channel().await?;
+                channel.create_queue(queue_name).await?;
                 let mut consumer = channel.create_consumer(queue_name, queue_name).await?;
 
                 info!("Consumer {} created", queue_name);
