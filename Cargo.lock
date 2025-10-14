@@ -1598,6 +1598,7 @@ dependencies = [
  "diesel",
  "diesel-async",
  "dotenvy",
+ "futures",
  "futures-lite",
  "lapin",
  "medbook-events",

@@ -26,3 +26,4 @@ rmq-wrappers = { git = "https://github.com/Pasobeso/rmq-wrappers.git" }
 medbook-events = { path = "../medbook-events" }
 lapin = "3.7.0"
 futures-lite = "2.6.1"
+futures = "0.3.31"
