@@ -14,7 +14,7 @@ async fn main() -> Result<()> {
     info!(".env files loaded");
 
     let ip = format!("0.0.0.0:{}", std::env::var("PORT")?);
-    info!("Starting server on {}...", ip);
+    info!("Starting InventoryService on {}...", ip);
 
     let app_state = AppState::init().await?;
 

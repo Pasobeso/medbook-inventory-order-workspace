@@ -3,7 +3,7 @@ use diesel::ExpressionMethods;
 use diesel_async::RunQueryDsl;
 use futures::future::BoxFuture;
 use lapin::{message::Delivery, options::BasicAckOptions};
-use medbook_events::{OrderPaymentSuccessEvent, OrderRejectedEvent, OrderReservedEvent};
+use medbook_events::{OrderRejectedEvent, OrderReservedEvent};
 use tracing::info;
 
 use crate::{app_state::AppState, schema::orders};
@@ -41,30 +41,6 @@ pub fn order_rejected(delivery: Delivery, state: AppState) -> BoxFuture<'static,
             .await?;
 
         info!("Order #{} has been rejected", payload.order_id);
-
-        delivery.ack(BasicAckOptions::default()).await?;
-
-        Ok(())
-    })
-}
-
-pub fn order_payment_success(
-    delivery: Delivery,
-    state: AppState,
-) -> BoxFuture<'static, Result<()>> {
-    Box::pin(async move {
-        let conn = &mut state.db_pool.get().await?;
-        let payload: OrderPaymentSuccessEvent =
-            serde_json::from_str(str::from_utf8(&delivery.data)?)?;
-        info!("Received event: {:?}", payload);
-
-        diesel::update(orders::table)
-            .filter(orders::id.eq(payload.order_id))
-            .set(orders::status.eq("PAYMENT_SUCCESS"))
-            .execute(conn)
-            .await?;
-
-        info!("Order #{} has been successfully paid for", payload.order_id);
 
         delivery.ack(BasicAckOptions::default()).await?;
 

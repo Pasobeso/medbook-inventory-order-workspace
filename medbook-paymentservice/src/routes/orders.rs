@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-use anyhow::{Context, bail};
+use anyhow::Context;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -9,10 +7,8 @@ use axum::{
 };
 use diesel::{ExpressionMethods, QueryDsl, SelectableHelper};
 use diesel_async::{AsyncConnection, RunQueryDsl};
-use medbook_events::OrderPayRequestEvent;
 use serde::{Deserialize, Serialize};
 use tracing::info;
-use uuid::Uuid;
 
 use crate::{
     app_error::AppError,
@@ -29,7 +25,6 @@ pub fn routes() -> Router<AppState> {
         .route("/", routing::post(create_order))
         .route("/", routing::get(get_orders))
         .route("/{id}", routing::get(get_order_by_id))
-        .route("/{id}/pay", routing::post(pay_for_order_id))
 }
 
 #[derive(Serialize, Debug)]
@@ -49,14 +44,6 @@ struct CreateOrderReq {
     pub order_items: Vec<OrderItem>,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct ProductEntity {
-    pub id: i32,
-    pub en_name: String,
-    pub th_name: String,
-    pub unit_price: f32,
-}
-
 async fn create_order(
     State(state): State<AppState>,
     Json(body): Json<CreateOrderReq>,
@@ -72,23 +59,6 @@ async fn create_order(
         .into_iter()
         .filter(|item| item.quantity > 0)
         .collect();
-
-    let products: Vec<ProductEntity> = reqwest::Client::new()
-        .get(format!("http://localhost:3000/products"))
-        // .query(&[("ids", item_ids.join(","))])
-        .send()
-        .await
-        .context("Failed to send get products request")?
-        .json()
-        .await
-        .context("Failed to parse response as text")?;
-
-    let product_prices: HashMap<i32, f32> = HashMap::from_iter(
-        products
-            .into_iter()
-            .map(|p| (p.id, p.unit_price))
-            .collect::<Vec<(i32, f32)>>(),
-    );
 
     let created_order = conn
         .transaction(|tx| {
@@ -108,26 +78,15 @@ async fn create_order(
                     order_items
                         .into_iter()
                         .map(|item| {
-                            let unit_price = product_prices
-                                .get(&item.product_id)
-                                .context(format!(
-                                    "Missing price info for product #{}",
-                                    item.product_id
-                                ))?
-                                .clone();
-
-                            return Ok((
+                            (
                                 CreateOrderItemEntity {
                                     order_id: created_order.id,
                                     product_id: item.product_id,
                                     quantity: item.quantity,
-                                    unit_price,
                                 },
                                 item,
-                            ));
+                            )
                         })
-                        .collect::<Result<Vec<_>, anyhow::Error>>()? // collect all Results
-                        .into_iter()
                         .unzip();
 
                 let inserted_count = diesel::insert_into(order_items::table)
@@ -240,90 +199,4 @@ async fn get_order_by_id(
     };
 
     Ok(Json(order_with_items))
-}
-
-#[derive(Serialize)]
-pub struct PayForOrderRes {
-    pub updated_order: OrderEntity,
-    pub payment_id: Uuid,
-}
-
-async fn pay_for_order_id(
-    State(state): State<AppState>,
-    Path(id): Path<i32>,
-) -> Result<impl IntoResponse, AppError> {
-    let conn = &mut state
-        .db_pool
-        .get()
-        .await
-        .context("Failed to obtain a DB connection pool")?;
-
-    let result = conn
-        .transaction(|conn| {
-            Box::pin(async move {
-                // 1. Update status to PAYMENT_PROCESSING
-                let updated_order: OrderEntity = diesel::update(
-                    orders::table
-                        .filter(orders::id.eq(id))
-                        .filter(orders::status.eq("RESERVED")),
-                )
-                .set(orders::status.eq("PAYMENT_PROCESSING"))
-                .returning(OrderEntity::as_returning())
-                .get_result(conn)
-                .await
-                .context("Failed to update order status")?;
-
-                info!(
-                    "Updated order #{}'s status to PAYMENT_PROCESSING",
-                    updated_order.id
-                );
-
-                // 2. Calculate total price
-                let order_items: Vec<OrderItemEntity> = order_items::table
-                    .filter(order_items::order_id.eq(updated_order.id))
-                    .get_results(conn)
-                    .await
-                    .context("Failed to get order items")?;
-
-                let total_price = order_items
-                    .into_iter()
-                    .map(|item| item.total_price)
-                    .sum::<f32>();
-
-                info!("Price: {}", total_price);
-
-                // 2. Generate payment UUID
-                let payment_id = Uuid::new_v4();
-
-                // 3. Create outbox
-                let outbox = diesel::insert_into(outbox::table)
-                    .values(CreateOutboxEntity {
-                        event_type: "payments.pay_request".into(),
-                        payload: serde_json::to_string(&OrderPayRequestEvent {
-                            payment_id,
-                            order_id: id,
-                            amount: total_price,
-                            provider: "qr_payment".into(),
-                        })
-                        .context("Failed to serialize OrderPayEvent")?,
-                    })
-                    .returning(OutboxEntity::as_returning())
-                    .get_result(conn)
-                    .await
-                    .context("Outbox creation failed")?;
-
-                info!("Outbox created: {:?}", outbox);
-
-                Ok::<(OrderEntity, Uuid), anyhow::Error>((updated_order, payment_id))
-            })
-        })
-        .await;
-
-    match result {
-        Ok((updated_order, payment_id)) => Ok(Json(PayForOrderRes {
-            updated_order,
-            payment_id,
-        })),
-        Err(err) => Err(AppError::Other(err)),
-    }
 }

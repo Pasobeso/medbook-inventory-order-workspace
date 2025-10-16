@@ -26,6 +26,8 @@ pub struct OrderItemEntity {
     pub order_id: i32,
     pub product_id: i32,
     pub quantity: i32,
+    pub unit_price: f32,
+    pub total_price: f32,
 }
 
 #[derive(Queryable, Selectable, Insertable, Debug)]
@@ -35,6 +37,7 @@ pub struct CreateOrderItemEntity {
     pub order_id: i32,
     pub product_id: i32,
     pub quantity: i32,
+    pub unit_price: f32,
 }
 
 #[derive(Serialize, Debug)]

@@ -5,6 +5,8 @@ diesel::table! {
         order_id -> Int4,
         product_id -> Int4,
         quantity -> Int4,
+        unit_price -> Float4,
+        total_price -> Float4,
     }
 }
 

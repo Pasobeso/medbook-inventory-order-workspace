@@ -11,6 +11,7 @@ pub struct ProductEntity {
     pub id: i32,
     pub en_name: String,
     pub th_name: String,
+    pub unit_price: f32,
 }
 
 #[derive(Queryable, Selectable, Insertable, Debug)]
@@ -18,7 +19,9 @@ pub struct ProductEntity {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct InventoryEntity {
     pub product_id: i32,
-    pub quantity: i32,
+    pub total_quantity: i32,
+    pub reserved_quantity: i32,
+    pub sold_quantity: i32,
 }
 
 #[derive(Queryable, Selectable, Debug)]
@@ -46,5 +49,9 @@ pub struct ProductInventoryEntity {
     product_id: i32,
     th_name: String,
     en_name: String,
-    quantity: i32,
+    unit_price: f32,
+    available_quantity: i32,
+    total_quantity: i32,
+    reserved_quantity: i32,
+    sold_quantity: i32,
 }

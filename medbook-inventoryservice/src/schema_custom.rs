@@ -3,6 +3,10 @@ diesel::table! {
         product_id -> Int4,
         th_name -> Text,
         en_name -> Text,
-        quantity -> Int4,
+        unit_price -> Float4,
+        available_quantity -> Int4,
+        total_quantity -> Int4,
+        reserved_quantity -> Int4,
+        sold_quantity -> Int4
     }
 }

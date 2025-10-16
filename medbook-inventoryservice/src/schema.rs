@@ -3,7 +3,9 @@
 diesel::table! {
     inventory (product_id) {
         product_id -> Int4,
-        quantity -> Int4,
+        total_quantity -> Int4,
+        reserved_quantity -> Int4,
+        sold_quantity -> Int4,
     }
 }
 
@@ -21,6 +23,7 @@ diesel::table! {
         id -> Int4,
         th_name -> Text,
         en_name -> Text,
+        unit_price -> Float4,
     }
 }
 
