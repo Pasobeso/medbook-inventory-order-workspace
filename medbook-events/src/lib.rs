@@ -38,3 +38,8 @@ pub struct OrderPaymentSuccessEvent {
     pub amount: f32,
     pub provider: String,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DeliveryOrderSuccessEvent {
+    pub order_id: i32,
+}

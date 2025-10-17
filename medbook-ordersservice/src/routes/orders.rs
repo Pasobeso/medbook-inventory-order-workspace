@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{Path, State},
+    middleware,
     response::IntoResponse,
     routing,
 };
@@ -17,9 +18,10 @@ use uuid::Uuid;
 use crate::{
     app_error::AppError,
     app_state::AppState,
+    infrastructure::axum_http::middleware::patients_authorization,
     models::{
         CreateOrderEntity, CreateOrderItemEntity, CreateOutboxEntity, OrderEntity, OrderItemEntity,
-        OrderWithItems, OutboxEntity,
+        OrderWithItems, OutboxEntity, UpdateOrderEntity,
     },
     schema::{order_items, orders, outbox},
 };
@@ -30,6 +32,7 @@ pub fn routes() -> Router<AppState> {
         .route("/", routing::get(get_orders))
         .route("/{id}", routing::get(get_order_by_id))
         .route("/{id}/pay", routing::post(pay_for_order_id))
+        .route_layer(middleware::from_fn(patients_authorization))
 }
 
 #[derive(Serialize, Debug)]
@@ -59,6 +62,7 @@ pub struct ProductEntity {
 
 async fn create_order(
     State(state): State<AppState>,
+    Extension(patient_id): Extension<i32>,
     Json(body): Json<CreateOrderReq>,
 ) -> Result<impl IntoResponse, AppError> {
     let conn = &mut state
@@ -75,10 +79,9 @@ async fn create_order(
 
     let products: Vec<ProductEntity> = reqwest::Client::new()
         .get(format!("http://localhost:3000/products"))
-        // .query(&[("ids", item_ids.join(","))])
         .send()
         .await
-        .context("Failed to send get products request")?
+        .map_err(|_| AppError::ServiceUnreachable("ProductsService".into()))?
         .json()
         .await
         .context("Failed to parse response as text")?;
@@ -95,6 +98,7 @@ async fn create_order(
             Box::pin(async move {
                 let created_order: OrderEntity = diesel::insert_into(orders::table)
                     .values(CreateOrderEntity {
+                        patient_id,
                         status: "PENDING".into(),
                     })
                     .returning(OrderEntity::as_returning())
@@ -201,9 +205,8 @@ async fn get_orders(State(state): State<AppState>) -> Result<impl IntoResponse, 
     let orders_with_items: Vec<OrderWithItems> = orders
         .into_iter()
         .map(|order| OrderWithItems {
-            id: order.id,
-            status: order.status,
             items: items_by_order.remove(&order.id).unwrap_or_default(),
+            order: order,
         })
         .collect();
 
@@ -212,6 +215,7 @@ async fn get_orders(State(state): State<AppState>) -> Result<impl IntoResponse, 
 
 async fn get_order_by_id(
     Path(id): Path<i32>,
+    Extension(patient_id): Extension<i32>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
     let conn = &mut state
@@ -226,6 +230,13 @@ async fn get_order_by_id(
         .await
         .context("Failed to fetch order")?;
 
+    if order.patient_id != patient_id {
+        return Err(AppError::ForbiddenResource(format!(
+            "orders(id={})",
+            order.id
+        )));
+    }
+
     let items: Vec<OrderItemEntity> = order_items::table
         .filter(order_items::order_id.eq(order.id))
         .select(OrderItemEntity::as_select())
@@ -233,13 +244,14 @@ async fn get_order_by_id(
         .await
         .context("Failed to fetch order items")?;
 
-    let order_with_items = OrderWithItems {
-        id: order.id,
-        status: order.status,
-        items,
-    };
+    let order_with_items = OrderWithItems { order, items };
 
     Ok(Json(order_with_items))
+}
+
+#[derive(Deserialize)]
+pub struct PayForOrderReq {
+    pub provider: String,
 }
 
 #[derive(Serialize)]
@@ -250,7 +262,9 @@ pub struct PayForOrderRes {
 
 async fn pay_for_order_id(
     State(state): State<AppState>,
+    Extension(patient_id): Extension<i32>,
     Path(id): Path<i32>,
+    Json(body): Json<PayForOrderReq>,
 ) -> Result<impl IntoResponse, AppError> {
     let conn = &mut state
         .db_pool
@@ -258,21 +272,39 @@ async fn pay_for_order_id(
         .await
         .context("Failed to obtain a DB connection pool")?;
 
-    let result = conn
+    // Check provider
+    match body.provider.as_str() {
+        "qr_payment" => {}
+        _ => return Err(AppError::InvalidPaymentProvider(body.provider)),
+    }
+
+    let updated_order = conn
         .transaction(|conn| {
             Box::pin(async move {
+                // Generate payment UUID
+                let payment_id = Uuid::new_v4();
+
                 // 1. Update status to PAYMENT_PROCESSING
                 let updated_order: OrderEntity = diesel::update(
                     orders::table
                         .filter(orders::id.eq(id))
                         .filter(orders::status.eq("RESERVED")),
                 )
-                .set(orders::status.eq("PAYMENT_PROCESSING"))
+                .set(&UpdateOrderEntity {
+                    status: Some("PAYMENT_PROCESSING".into()),
+                    payment_id: Some(payment_id),
+                })
                 .returning(OrderEntity::as_returning())
                 .get_result(conn)
                 .await
-                .context("Failed to update order status")?;
+                .context("Unable to fetch updated order")?;
 
+                if updated_order.patient_id != patient_id {
+                    return Err(AppError::ForbiddenResource(format!(
+                        "orders(id={})",
+                        updated_order.id
+                    )));
+                }
                 info!(
                     "Updated order #{}'s status to PAYMENT_PROCESSING",
                     updated_order.id
@@ -291,9 +323,6 @@ async fn pay_for_order_id(
                     .sum::<f32>();
 
                 info!("Price: {}", total_price);
-
-                // 2. Generate payment UUID
-                let payment_id = Uuid::new_v4();
 
                 // 3. Create outbox
                 let outbox = diesel::insert_into(outbox::table)
@@ -314,16 +343,13 @@ async fn pay_for_order_id(
 
                 info!("Outbox created: {:?}", outbox);
 
-                Ok::<(OrderEntity, Uuid), anyhow::Error>((updated_order, payment_id))
+                Ok::<OrderEntity, AppError>(updated_order)
             })
         })
         .await;
 
-    match result {
-        Ok((updated_order, payment_id)) => Ok(Json(PayForOrderRes {
-            updated_order,
-            payment_id,
-        })),
-        Err(err) => Err(AppError::Other(err)),
+    match updated_order {
+        Ok(updated_order) => Ok(Json(updated_order)),
+        Err(err) => Err(err),
     }
 }

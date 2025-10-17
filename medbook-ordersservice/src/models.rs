@@ -1,21 +1,39 @@
+use chrono::{DateTime, Utc};
 use diesel::{
     Selectable,
-    prelude::{Insertable, Queryable},
+    prelude::{AsChangeset, Insertable, Queryable},
 };
 use serde::Serialize;
+use serde_json::Value;
+use uuid::Uuid;
 
 #[derive(Queryable, Serialize, Selectable, Debug)]
 #[diesel(table_name = crate::schema::orders)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct OrderEntity {
     pub id: i32,
+    pub patient_id: i32,
     pub status: String,
+    pub order_type: String,
+    pub delivery_address: Option<Value>,
+    pub payment_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(AsChangeset)]
+#[diesel(table_name = crate::schema::orders)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct UpdateOrderEntity {
+    pub status: Option<String>,
+    pub payment_id: Option<Uuid>,
 }
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::orders)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CreateOrderEntity {
+    pub patient_id: i32,
     pub status: String,
 }
 
@@ -28,6 +46,8 @@ pub struct OrderItemEntity {
     pub quantity: i32,
     pub unit_price: f32,
     pub total_price: f32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Queryable, Selectable, Insertable, Debug)]
@@ -42,8 +62,7 @@ pub struct CreateOrderItemEntity {
 
 #[derive(Serialize, Debug)]
 pub struct OrderWithItems {
-    pub id: i32,
-    pub status: String,
+    pub order: OrderEntity,
     pub items: Vec<OrderItemEntity>,
 }
 

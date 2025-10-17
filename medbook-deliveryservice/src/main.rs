@@ -1,4 +1,4 @@
-use medbook_ordersservice::{app_state, consumers, outbox, routes};
+use medbook_deliveryservice::{app_state, consumers, outbox, routes};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -10,33 +10,20 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(".env files loaded");
 
     let ip = format!("0.0.0.0:{}", std::env::var("PORT")?);
-    tracing::info!("Starting OrdersService on {}...", ip);
+    tracing::info!("Starting DeliveryService on {}...", ip);
 
     let app_state = app_state::AppState::init().await?;
 
     consumers::init(
-        "orders.order_reserved".into(),
-        consumers::orders::order_reserved,
-        app_state.clone(),
-    );
-
-    consumers::init(
-        "orders.order_rejected".into(),
-        consumers::orders::order_rejected,
-        app_state.clone(),
-    );
-
-    consumers::init(
-        "orders.payment_success".into(),
-        consumers::orders::order_payment_success,
+        "delivery.order_success".into(),
+        consumers::delivery::order_success,
         app_state.clone(),
     );
 
     outbox::init(app_state.clone());
 
     let app = axum::Router::new()
-        .nest("/orders", routes::orders::routes())
-        .nest("/authtest", routes::authtest::routes())
+        .nest("/delivery", routes::delivery::routes())
         .route("/health-check", axum::routing::get(|| async { "OK" }))
         .with_state(app_state);
 

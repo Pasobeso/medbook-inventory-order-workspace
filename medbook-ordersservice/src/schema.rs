@@ -7,13 +7,21 @@ diesel::table! {
         quantity -> Int4,
         unit_price -> Float4,
         total_price -> Float4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 
 diesel::table! {
     orders (id) {
         id -> Int4,
+        patient_id -> Int4,
         status -> Text,
+        order_type -> Text,
+        delivery_address -> Nullable<Jsonb>,
+        payment_id -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 

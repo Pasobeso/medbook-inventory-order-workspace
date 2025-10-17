@@ -23,7 +23,7 @@ pub fn pay_request(delivery: Delivery, state: AppState) -> BoxFuture<'static, Re
             .await
             .context("Failed to obtain a DB connection pool")?;
 
-        let payment: PaymentEntity = diesel::insert_into(payments::table)
+        let payment = diesel::insert_into(payments::table)
             .values(CreatePaymentEntity {
                 id: payload.payment_id,
                 order_id: payload.order_id,

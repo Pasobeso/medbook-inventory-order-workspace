@@ -3,11 +3,11 @@ use futures::future::BoxFuture;
 use futures_lite::StreamExt;
 use lapin::message::Delivery;
 use std::time::Duration;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::app_state::AppState;
-// pub mod orders;
-pub mod payments;
+// pub mod payments;
+pub mod delivery;
 
 type ConsumerFn = fn(Delivery, AppState) -> BoxFuture<'static, Result<()>>;
 
@@ -26,10 +26,7 @@ pub fn init(queue_name: String, consumer_fn: ConsumerFn, state: AppState) {
 
                 while let Some(delivery) = consumer.next().await {
                     let delivery = delivery?;
-                    match consumer_fn(delivery, state.clone()).await {
-                        Ok(_) => {}
-                        Err(err) => error!("Error in consumer: {}", err),
-                    }
+                    consumer_fn(delivery, state.clone()).await?
                 }
 
                 Ok::<_, anyhow::Error>(())
